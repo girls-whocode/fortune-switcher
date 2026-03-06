@@ -1,0 +1,30 @@
+name: FortuneSwitcher
+version: 1.3.0
+main: com.cnj.switcher.FortuneSwitcherPlugin
+api-version: '1.21'
+
+commands:
+  switcher:
+    description: Switch between Fortune and Silk Touch on a tagged tool
+    usage: /switcher [tag|untag|reload|give]
+    permission: cnj.switcher.use
+
+permissions:
+  cnj.switcher.use:
+    description: Allows use of /switcher
+    default: false
+  cnj.switcher.admin.tag:
+    description: Allows tagging switchable tools
+    default: op
+  cnj.switcher.admin.untag:
+    description: Allows untagging switchable tools
+    default: op
+  cnj.switcher.admin.reload:
+    description: Allows reloading the plugin config
+    default: op
+  cnj.switcher.admin.give:
+    description: Allows giving switcher tools
+    default: op
+  cnj.switcher.bypass.tag:
+    description: Allows switching untagged tools
+    default: false
