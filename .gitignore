@@ -1,2 +1,5 @@
 */versions
 */versions/*
+target/
+logs/
+*.log
