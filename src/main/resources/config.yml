@@ -47,12 +47,14 @@ permissions:
 
 tagging:
   add-lore-line: true
-  lore-line: "&6&l✦ Switcher Infused ✦"
+  lore-line: "&e&l✦ Switcher Infused ✦"
 
 mode-lore:
   enabled: true
-  silk-line: "&bMode: Silk Touch"
+  silk-line: "&b&lMode: &fSilk Touch"
   fortune-line: "&6Mode: Fortune %level%"
+  fortune-line-epic: "&6&lMode: &eFortune %level%"
+  fortune-line-legendary: "&e&lMode: &6&lFortune %level%"
 
 instruction-lore:
   enabled: true

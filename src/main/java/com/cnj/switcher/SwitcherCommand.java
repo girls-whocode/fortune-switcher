@@ -1,5 +1,6 @@
 package com.cnj.switcher;
 
+import net.kyori.adventure.text.Component;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
@@ -10,14 +11,13 @@ import org.bukkit.command.TabExecutor;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
-import net.kyori.adventure.text.Component;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -26,6 +26,10 @@ import java.util.stream.Collectors;
 public class SwitcherCommand implements TabExecutor {
 
     private final FortuneSwitcherPlugin plugin;
+
+    public SwitcherCommand(FortuneSwitcherPlugin plugin) {
+        this.plugin = plugin;
+    }
 
     private String romanNumeral(int number) {
         return switch (number) {
@@ -72,10 +76,6 @@ public class SwitcherCommand implements TabExecutor {
         return builder.toString().trim();
     }
 
-    public SwitcherCommand(FortuneSwitcherPlugin plugin) {
-        this.plugin = plugin;
-    }
-
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         FileConfiguration config = plugin.getConfig();
@@ -98,7 +98,7 @@ public class SwitcherCommand implements TabExecutor {
                 case "give":
                     return handleGive(player, args, config);
                 default:
-                    player.sendMessage(color("&cUnknown subcommand. Try: /switcher tag, /switcher untag, /switcher reload"));
+                    player.sendMessage(color("&cUnknown subcommand. Try: /switcher tag, /switcher untag, /switcher reload, /switcher give"));
                     return true;
             }
         }
@@ -216,7 +216,7 @@ public class SwitcherCommand implements TabExecutor {
         }
 
         if (args.length < 4) {
-            sender.sendMessage(color("&cUsage: /switcher give <player> <item> <fortune|silk> [level]"));
+            sender.sendMessage(color("&cUsage: /switcher give <player> <item> <fortune|silk> [level] [unbreakable]"));
             return true;
         }
 
@@ -246,19 +246,26 @@ public class SwitcherCommand implements TabExecutor {
         }
 
         int fortuneLevel = config.getInt("settings.default-fortune-level", 3);
-        if (mode.equals("fortune")) {
-            if (args.length >= 5) {
-                try {
-                    fortuneLevel = Integer.parseInt(args[4]);
-                    if (fortuneLevel < 1) {
-                        sender.sendMessage(color(config.getString("messages.invalid-level", "&cFortune level must be a positive number.")));
-                        return true;
-                    }
-                } catch (NumberFormatException e) {
+        if (mode.equals("fortune") && args.length >= 5) {
+            try {
+                fortuneLevel = Integer.parseInt(args[4]);
+                if (fortuneLevel < 1) {
                     sender.sendMessage(color(config.getString("messages.invalid-level", "&cFortune level must be a positive number.")));
                     return true;
                 }
+            } catch (NumberFormatException e) {
+                sender.sendMessage(color(config.getString("messages.invalid-level", "&cFortune level must be a positive number.")));
+                return true;
             }
+        }
+
+        boolean unbreakable = config.getBoolean("give.default-unbreakable", true);
+        if (args.length >= 6) {
+            if (args[5].equalsIgnoreCase("unbreakable")) {
+                unbreakable = true;
+            }
+        } else if (args.length == 5 && mode.equals("silk") && args[4].equalsIgnoreCase("unbreakable")) {
+            unbreakable = true;
         }
 
         ItemStack item = new ItemStack(material);
@@ -269,13 +276,11 @@ public class SwitcherCommand implements TabExecutor {
         }
 
         meta.getPersistentDataContainer().set(plugin.getSwitchableToolKey(), PersistentDataType.BYTE, (byte) 1);
-
-        boolean unbreakable = config.getBoolean("give.default-unbreakable", true);
         meta.setUnbreakable(unbreakable);
 
         for (String flagName : config.getStringList("give.add-item-flags")) {
             try {
-                meta.addItemFlags(org.bukkit.inventory.ItemFlag.valueOf(flagName.toUpperCase(Locale.ROOT)));
+                meta.addItemFlags(ItemFlag.valueOf(flagName.toUpperCase(Locale.ROOT)));
             } catch (IllegalArgumentException ignored) {
                 plugin.getLogger().warning("Invalid ItemFlag in config.yml: " + flagName);
             }
@@ -295,7 +300,7 @@ public class SwitcherCommand implements TabExecutor {
                 item.setItemMeta(silkMeta);
             }
 
-            updateModeLore(item, config, true, 1);
+            updateModeLore(item, config, true, fortuneLevel);
         }
 
         target.getInventory().addItem(item);
@@ -344,17 +349,6 @@ public class SwitcherCommand implements TabExecutor {
         }
 
         meta.getPersistentDataContainer().set(plugin.getSwitchableToolKey(), PersistentDataType.BYTE, (byte) 1);
-
-        List<String> lore = meta.hasLore() ? new ArrayList<>(meta.getLore()) : new ArrayList<>();
-
-        if (config.getBoolean("tagging.add-lore-line", true)) {
-            String tagLine = color(config.getString("tagging.lore-line", "&6&l✦ Switcher Infused ✦"));
-            if (!containsExactLine(lore, tagLine)) {
-                lore.add(tagLine);
-            }
-        }
-
-        meta.setLore(lore.isEmpty() ? null : lore);
         item.setItemMeta(meta);
 
         syncModeLoreFromCurrentState(item, config);
@@ -389,21 +383,9 @@ public class SwitcherCommand implements TabExecutor {
 
         meta.getPersistentDataContainer().remove(plugin.getSwitchableToolKey());
         meta.getPersistentDataContainer().remove(plugin.getStoredFortuneKey());
-
-        List<String> lore = meta.hasLore() ? new ArrayList<>(meta.getLore()) : new ArrayList<>();
-
-        String tagLine = color(config.getString("tagging.lore-line", "&6&l✦ Switcher Infused ✦"));
-        String silkLine = color(config.getString("mode-lore.silk-line", "&bMode: Silk Touch"));
-        String fortuneBase = color(config.getString("mode-lore.fortune-line", "&6Mode: Fortune %level%"));
-
-        lore.removeIf(line ->
-                line.equals(tagLine)
-                        || line.equals(silkLine)
-                        || stripColors(line).startsWith(stripColors(fortuneBase.replace("%level%", "")))
-        );
-
-        meta.setLore(lore.isEmpty() ? null : lore);
         item.setItemMeta(meta);
+
+        removeSwitcherLoreBlock(item, config);
 
         player.sendMessage(color(config.getString("messages.untagged", "&eSwitcher removed from this tool.")));
         return true;
@@ -454,7 +436,17 @@ public class SwitcherCommand implements TabExecutor {
         }
 
         if (item.containsEnchantment(Enchantment.SILK_TOUCH)) {
-            updateModeLore(item, config, true, 1);
+            int rememberedFortune = config.getInt("settings.default-fortune-level", 3);
+
+            ItemMeta meta = item.getItemMeta();
+            if (meta != null) {
+                Integer saved = meta.getPersistentDataContainer().get(plugin.getStoredFortuneKey(), PersistentDataType.INTEGER);
+                if (saved != null && saved > 0) {
+                    rememberedFortune = saved;
+                }
+            }
+
+            updateModeLore(item, config, true, rememberedFortune);
         } else if (item.containsEnchantment(Enchantment.FORTUNE)) {
             int level = item.getEnchantmentLevel(Enchantment.FORTUNE);
             updateModeLore(item, config, false, level);
@@ -463,41 +455,133 @@ public class SwitcherCommand implements TabExecutor {
 
     private void updateModeLore(ItemStack item, FileConfiguration config, boolean silkMode, int level) {
         ItemMeta meta = item.getItemMeta();
-        if (meta == null) {
-            return;
-        }
+        if (meta == null) return;
 
-        List<String> lore = new ArrayList<>();
+        List<String> lore = meta.hasLore() ? new ArrayList<>(meta.getLore()) : new ArrayList<>();
+        lore = stripSwitcherLoreBlock(lore, config);
 
-        if (config.getBoolean("tagging.add-lore-line", true)) {
-            lore.add(color(config.getString("tagging.lore-line", "&6&l✦ Switcher Infused ✦")));
-        }
+        List<String> switcherBlock = buildSwitcherLoreBlock(config, silkMode, level);
 
-        if (config.getBoolean("lore-format.add-blank-line-after-title", true)) {
+        if (!lore.isEmpty() && !isBlank(lore.get(lore.size() - 1))) {
             lore.add("");
         }
 
-        if (config.getBoolean("mode-lore.enabled", true)) {
-            if (silkMode) {
-                lore.add(color(config.getString("mode-lore.silk-line", "&bMode: Silk Touch")));
-            } else {
-                lore.add(color(
-                        config.getString("mode-lore.fortune-line", "&6Mode: Fortune %level%")
-                                .replace("%level%", romanNumeral(level))
-                ));
-            }
-        }
-
-        if (config.getBoolean("lore-format.add-blank-line-before-instruction", true)) {
-            lore.add("");
-        }
-
-        if (config.getBoolean("instruction-lore.enabled", true)) {
-            lore.add(color(config.getString("instruction-lore.line", "&7Use &f/switcher &7to toggle")));
-        }
+        lore.addAll(switcherBlock);
 
         meta.setLore(lore);
         item.setItemMeta(meta);
+    }
+
+    private void removeSwitcherLoreBlock(ItemStack item, FileConfiguration config) {
+        ItemMeta meta = item.getItemMeta();
+        if (meta == null) return;
+
+        List<String> lore = meta.hasLore() ? new ArrayList<>(meta.getLore()) : new ArrayList<>();
+        lore = stripSwitcherLoreBlock(lore, config);
+
+        trimTrailingBlankLines(lore);
+        meta.setLore(lore.isEmpty() ? null : lore);
+        item.setItemMeta(meta);
+    }
+
+    private List<String> stripSwitcherLoreBlock(List<String> lore, FileConfiguration config) {
+        String titleLine = color(config.getString("tagging.lore-line", "&e&l✦ Switcher Infused ✦"));
+        String instructionLine = color(config.getString("instruction-lore.line", "&7Use &f/switcher &7to toggle"));
+
+        List<String> cleaned = new ArrayList<>();
+        for (String line : lore) {
+            if (isSwitcherTitle(line, titleLine)) continue;
+            if (isSwitcherModeLine(line)) continue;
+            if (isSwitcherInstruction(line, instructionLine)) continue;
+            cleaned.add(line);
+        }
+
+        trimTrailingBlankLines(cleaned);
+
+        return collapseExcessBlankLines(cleaned);
+    }
+
+    private List<String> buildSwitcherLoreBlock(FileConfiguration config, boolean silkMode, int level) {
+        List<String> block = new ArrayList<>();
+
+        String titleLine = color(config.getString("tagging.lore-line", "&e&l✦ Switcher Infused ✦"));
+        String instructionLine = color(config.getString("instruction-lore.line", "&7Use &f/switcher &7to toggle"));
+
+        block.add(titleLine);
+
+        if (config.getBoolean("lore-format.add-blank-line-after-title", true)) {
+            block.add("");
+        }
+
+        block.add(getStyledModeLine(config, silkMode, level));
+
+        if (config.getBoolean("lore-format.add-blank-line-before-instruction", true)) {
+            block.add("");
+        }
+
+        if (config.getBoolean("instruction-lore.enabled", true)) {
+            block.add(instructionLine);
+        }
+
+        return block;
+    }
+
+    private String getStyledModeLine(FileConfiguration config, boolean silkMode, int level) {
+        if (silkMode) {
+            return color(config.getString("mode-lore.silk-line", "&b&lMode: &fSilk Touch"));
+        }
+
+        String numeral = romanNumeral(level);
+        String template;
+
+        if (level >= 10) {
+            template = config.getString("mode-lore.fortune-line-legendary", "&e&lMode: &6&lFortune %level%");
+        } else if (level >= 5) {
+            template = config.getString("mode-lore.fortune-line-epic", "&6&lMode: &eFortune %level%");
+        } else {
+            template = config.getString("mode-lore.fortune-line", "&6Mode: Fortune %level%");
+        }
+
+        return color(template.replace("%level%", numeral));
+    }
+
+    private boolean isSwitcherTitle(String line, String titleLine) {
+        return line != null && line.equals(titleLine);
+    }
+
+    private boolean isSwitcherModeLine(String line) {
+        String stripped = stripColors(line);
+        return stripped.startsWith("Mode: Silk Touch") || stripped.startsWith("Mode: Fortune ");
+    }
+
+    private boolean isSwitcherInstruction(String line, String instructionLine) {
+        return line != null && line.equals(instructionLine);
+    }
+
+    private boolean isBlank(String line) {
+        return line == null || line.trim().isEmpty();
+    }
+
+    private void trimTrailingBlankLines(List<String> lore) {
+        while (!lore.isEmpty() && isBlank(lore.get(lore.size() - 1))) {
+            lore.remove(lore.size() - 1);
+        }
+    }
+
+    private List<String> collapseExcessBlankLines(List<String> lore) {
+        List<String> result = new ArrayList<>();
+        boolean lastWasBlank = false;
+
+        for (String line : lore) {
+            boolean blank = isBlank(line);
+            if (blank && lastWasBlank) {
+                continue;
+            }
+            result.add(line);
+            lastWasBlank = blank;
+        }
+
+        return result;
     }
 
     private void playSuccessSound(Player player, FileConfiguration config) {
@@ -522,19 +606,15 @@ public class SwitcherCommand implements TabExecutor {
             return;
         }
 
-        player.sendActionBar(net.kyori.adventure.text.Component.text(color(message)));
-    }
-
-    private boolean containsExactLine(List<String> lore, String line) {
-        return lore.stream().anyMatch(existing -> existing.equals(line));
+        player.sendActionBar(Component.text(color(message)));
     }
 
     private String color(String text) {
-        return ChatColor.translateAlternateColorCodes('&', text);
+        return ChatColor.translateAlternateColorCodes('&', text == null ? "" : text);
     }
 
     private String stripColors(String text) {
-        return ChatColor.stripColor(color(text == null ? "" : text));
+        return ChatColor.stripColor(color(text));
     }
 
     @Override
@@ -577,8 +657,17 @@ public class SwitcherCommand implements TabExecutor {
                     .toList();
         }
 
-        if (args.length == 5 && args[0].equalsIgnoreCase("give") && args[3].equalsIgnoreCase("fortune")) {
-            return List.of("1", "2", "3", "4", "5");
+        if (args.length == 5 && args[0].equalsIgnoreCase("give")) {
+            if (args[3].equalsIgnoreCase("fortune")) {
+                return List.of("1", "2", "3", "4", "5", "10", "15", "20");
+            }
+            if (args[3].equalsIgnoreCase("silk")) {
+                return List.of("unbreakable");
+            }
+        }
+
+        if (args.length == 6 && args[0].equalsIgnoreCase("give") && args[3].equalsIgnoreCase("fortune")) {
+            return List.of("unbreakable");
         }
 
         return List.of();
