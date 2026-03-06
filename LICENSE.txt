@@ -1,0 +1,9 @@
+Copyright (c) 2026 CodeNameJessica
+
+All rights reserved.
+
+This plugin may not be redistributed, resold, or shared without explicit permission from the author.
+
+Purchasing this plugin grants a license to use the plugin on your server but does not grant rights to redistribute, repackage, or resell the plugin.
+
+Unauthorized distribution of this software is strictly prohibited.
